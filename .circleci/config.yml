@@ -1,0 +1,51 @@
+version: 2
+
+# https://circleci.com/blog/circleci-hacks-reuse-yaml-in-your-circleci-config-with-yaml/
+defaults: &defaults
+  docker:
+    - image: quay.io/weaveworks/build-golang:1.10.0-stretch
+
+workflows:
+  version: 2
+  build-test-deploy:
+    jobs:
+      - build-test
+      - deploy:
+          requires:
+            - build-test
+          filters:
+            branches:
+              only: master
+
+jobs:
+  build-test:
+    <<: *defaults
+    steps:
+    - checkout
+    - run:
+        command: make deps
+    - run:
+        name: make all
+        command: |
+          mkdir -p test-results/tests/junit.xml
+          make JUNIT_XML=test-results/tests/junit.xml all
+    - store_test_results:
+        path: test-results
+    - store_artifacts:
+        path: test-results
+
+  deploy:
+    <<: *defaults
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+        command: make deps .uptodate
+      - deploy:
+          command: |
+            docker login -u $DOCKER_USER -p $DOCKER_PASS
+            docker push weaveworks/kubediff:$(./tools/image-tag)
+            docker push weaveworks/kubediff:latest
+            docker login -u "$QUAY_USER" -p "$QUAY_PASSWORD" quay.io
+            docker push quay.io/weaveworks/kubediff:$(./tools/image-tag)
+            docker push quay.io/weaveworks/kubediff:latest
